@@ -1,41 +1,46 @@
-import { useQuery } from "react-query";
-import { db } from "../services/firebase/config"; // Adjust the import path based on your project structure
-import { ref, onValue } from "firebase/database";
+import { useQuery, useQueryClient } from 'react-query';
+import { db } from "../services/firebase/config"; // Adjust import path based on your project structure
+import { ref, onValue, off } from "firebase/database";
 
 function useFetchFirebase(reloadKey) {
-  // Define a function to fetch data from Firebase
-  const fetchData = () => {
-    return new Promise((resolve, reject) => {
-      const dataRef = ref(db, "Scans");
+  const queryClient = useQueryClient(); // Used to manually trigger refetch
 
-      // Subscribe to changes in Firebase data
-      const unsubscribe = onValue(
-        dataRef,
-        (snapshot) => {
-          resolve(snapshot.val());
-        },
-        (errorObject) => {
-          reject(new Error(errorObject.message));
-        }
-      );
+  // Use react-query to handle state management
+  return useQuery(
+    ['firebaseData', reloadKey], // Unique key for caching and querying
+    () =>
+      new Promise((resolve, reject) => {
+        const dataRef = ref(db); // Reference to the Firebase data location
 
-      // Clean up the subscription when done
-      return () => unsubscribe();
-    });
-  };
+        // Set up Firebase's onValue listener to subscribe to real-time updates
+        const unsubscribe = onValue(
+          dataRef,
+          (snapshot) => {
+            const fetchedData = snapshot.val();
+            resolve(fetchedData); // Resolve with the updated data
+            queryClient.setQueryData(['firebaseData', reloadKey], fetchedData); // Update cache manually
+          },
+          (error) => {
+            reject(error); // Reject the promise in case of an error
+          }
+        );
 
-  // Use React Query's useQuery hook to fetch data
-  const { data, error, isLoading } = useQuery(
-    ["firebaseData", reloadKey], // Unique query key with reloadKey
-    fetchData, // Fetch function
+        // Cleanup the listener when the component unmounts or query is invalidated
+        return () => {
+          off(dataRef); // Unsubscribe from Firebase listener
+        };
+      }),
     {
-      // Add any additional React Query options as needed
-      staleTime: 0, // Data will be fresh every time
-      cacheTime: 0, // Data won't be cached
+      refetchOnWindowFocus: false, // Disable refetching on window focus
+      refetchInterval: false, // Disable periodic refetching since Firebase is real-time
+      onSuccess: (data) => {
+        console.log("Real-time data updated:", data);
+      },
+      onError: (error) => {
+        console.error("Error fetching real-time data:", error);
+      }
     }
   );
-
-  return { data, loading: isLoading, error };
 }
 
 export { useFetchFirebase };
